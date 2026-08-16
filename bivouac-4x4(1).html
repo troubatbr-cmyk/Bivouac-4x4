@@ -1,0 +1,1230 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover">
+<title>Bivouac 4x4 — Recherche de zones isolées</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Work+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#181e15;
+    --panel:#212a1c;
+    --panel-2:#2a3423;
+    --line:#3a4530;
+    --text:#e9e4d3;
+    --text-dim:#a3ab93;
+    --moss:#8fae6b;
+    --rust:#c1703f;
+    --gold:#c9a961;
+    --water:#6f9bb0;
+    --stone:#9a9c8c;
+    --danger:#c1573f;
+    --radius:10px;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%; margin:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Work Sans', sans-serif;
+    overflow:hidden;
+  }
+  .app{ display:flex; flex-direction:column; height:100dvh; }
+
+  header{
+    padding:14px 16px 10px;
+    background:linear-gradient(180deg, var(--panel) 0%, var(--bg) 100%);
+    border-bottom:1px solid var(--line);
+    flex-shrink:0;
+    position:relative;
+    z-index:20;
+  }
+  .brand{ display:flex; align-items:baseline; gap:8px; }
+  .brand-row{ display:flex; justify-content:space-between; align-items:center; }
+  .collapse-btn{
+    background:transparent; border:1px solid var(--line); border-radius:8px;
+    padding:5px 12px; color:var(--text-dim); font-size:15px; cursor:pointer; flex-shrink:0;
+  }
+  header.collapsed .controls, header.collapsed .toggle-row, header.collapsed .btnrow{ display:none; }
+  header.collapsed{ padding-bottom:10px; }
+  .brand h1{
+    font-family:'Barlow Condensed', sans-serif;
+    font-weight:700;
+    font-size:24px;
+    letter-spacing:0.5px;
+    margin:0;
+    text-transform:uppercase;
+    color:var(--text);
+  }
+  .brand h1 span{ color:var(--moss); }
+  .brand small{ color:var(--text-dim); font-size:11px; font-family:'JetBrains Mono', monospace; }
+
+  .controls{
+    margin-top:12px;
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px 12px;
+  }
+  .field{ display:flex; flex-direction:column; gap:4px; }
+  .field label{
+    font-size:10.5px; text-transform:uppercase; letter-spacing:0.8px;
+    color:var(--text-dim); font-weight:600;
+  }
+  .field .valrow{ display:flex; align-items:center; gap:8px; }
+  .field .valrow output{
+    font-family:'JetBrains Mono', monospace; font-size:13px; color:var(--gold);
+    min-width:52px;
+  }
+  input[type=range]{
+    -webkit-appearance:none; appearance:none;
+    width:100%; height:4px; border-radius:2px;
+    background:var(--line); outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:16px; height:16px; border-radius:50%;
+    background:var(--moss); border:2px solid var(--bg); cursor:pointer;
+    box-shadow:0 0 0 1px var(--moss);
+  }
+  .toggle-row{ display:flex; align-items:center; gap:8px; margin-top:10px; }
+  .toggle-row label{ font-size:11.5px; color:var(--text-dim); font-weight:600; }
+  .switch{
+    width:38px; height:22px; border-radius:12px; background:var(--line);
+    position:relative; cursor:pointer; border:1px solid var(--line); flex-shrink:0;
+  }
+  .switch.on{ background:rgba(111,155,176,0.35); border-color:var(--water); }
+  .switch .knob{
+    position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%;
+    background:var(--text-dim); transition:left .15s;
+  }
+  .switch.on .knob{ left:18px; background:var(--water); }
+
+  .btnrow{ display:flex; gap:8px; margin-top:12px; }
+  button{
+    font-family:'Work Sans', sans-serif; font-weight:600; font-size:13.5px;
+    border:1px solid var(--line); border-radius:var(--radius);
+    padding:11px 14px; cursor:pointer; background:var(--panel-2); color:var(--text);
+    display:flex; align-items:center; justify-content:center; gap:6px;
+    transition:background .15s, transform .1s;
+  }
+  button:active{ transform:scale(0.97); }
+  button.primary{ background:var(--moss); color:#152010; border-color:var(--moss); flex:1.4; }
+  button.ghost{ background:transparent; }
+  button:disabled{ opacity:0.45; pointer-events:none; }
+
+  #map{ flex:1; position:relative; z-index:1; }
+  .leaflet-container{ background:#e8e6df; }
+
+  .status{
+    position:absolute; top:10px; left:50%; transform:translateX(-50%);
+    background:rgba(33,42,28,0.95); border:1px solid var(--line);
+    padding:8px 14px; border-radius:20px; font-size:12.5px;
+    color:var(--gold); z-index:1000; display:none; align-items:center; gap:8px;
+    font-family:'JetBrains Mono', monospace; white-space:nowrap;
+    box-shadow:0 4px 12px rgba(0,0,0,0.4);
+  }
+  .status.show{ display:flex; }
+  .map-fabs{ position:absolute; top:10px; right:10px; z-index:1000; display:flex; flex-direction:column; gap:6px; align-items:flex-end; }
+  .map-fab{
+    background:rgba(33,42,28,0.95); color:var(--text); border:1px solid var(--line);
+    padding:8px 12px; border-radius:20px; font-size:12.5px; font-weight:600;
+    cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,0.4);
+    font-family:'Work Sans', sans-serif;
+  }
+  .map-fab.active{ background:rgba(193,87,63,0.85); border-color:var(--danger); }
+  .map-fab:active{ transform:scale(0.96); }
+  .spinner{
+    width:12px; height:12px; border-radius:50%;
+    border:2px solid rgba(201,169,97,0.25); border-top-color:var(--gold);
+    animation:spin .7s linear infinite;
+  }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+
+  .sheet{
+    background:var(--panel);
+    border-top:1px solid var(--line);
+    flex-shrink:0;
+    max-height:44dvh;
+    display:flex;
+    flex-direction:column;
+    z-index:20;
+    box-shadow:0 -6px 18px rgba(0,0,0,0.35);
+  }
+  .sheet-handle{
+    padding:9px 16px 6px; display:flex; align-items:center; justify-content:space-between;
+    border-bottom:1px solid var(--line); flex-shrink:0;
+  }
+  .sheet-handle .count{
+    font-family:'Barlow Condensed', sans-serif; font-weight:700; font-size:16px; text-transform:uppercase;
+    letter-spacing:0.4px;
+  }
+  .sheet-handle .count b{ color:var(--moss); font-size:19px; }
+  .sheet-actions{ display:flex; gap:8px; }
+  .sheet-actions button{ padding:7px 11px; font-size:12px; }
+
+  .results{ overflow-y:auto; padding:6px 10px 14px; }
+  .result-item{
+    background:var(--panel-2); border:1px solid var(--line); border-radius:var(--radius);
+    padding:10px 12px; margin:6px 0;
+  }
+  .result-item .ri-top{ display:flex; justify-content:space-between; align-items:center; cursor:pointer; }
+  .result-item .ri-left{ display:flex; flex-direction:column; gap:3px; }
+  .result-item .ri-title{ font-weight:600; font-size:13.5px; }
+  .result-item .ri-coords{ font-family:'JetBrains Mono', monospace; font-size:11px; color:var(--text-dim); }
+  .result-item .ri-badges{ display:flex; gap:6px; margin-top:4px; flex-wrap:wrap; }
+  .badge{
+    font-family:'JetBrains Mono', monospace; font-size:10.5px; padding:2px 6px; border-radius:5px;
+    background:rgba(143,174,107,0.15); color:var(--moss); border:1px solid rgba(143,174,107,0.3);
+  }
+  .badge.rust{ background:rgba(193,112,63,0.15); color:var(--rust); border-color:rgba(193,112,63,0.3); }
+  .badge.water{ background:rgba(111,155,176,0.15); color:var(--water); border-color:rgba(111,155,176,0.35); }
+  .ri-open{ font-size:18px; color:var(--text-dim); padding:0 4px; }
+
+  .activity-chips{ display:flex; gap:5px; flex-wrap:wrap; margin-top:6px; }
+  .achip{
+    font-size:11px; padding:4px 8px; border-radius:14px; border:1px solid var(--line);
+    background:var(--bg); color:var(--text-dim); cursor:pointer; user-select:none;
+    display:flex; align-items:center; gap:4px;
+  }
+  .achip.active{ background:rgba(111,155,176,0.2); border-color:var(--water); color:var(--water); }
+
+  .filter-bar{
+    display:flex; gap:6px; padding:8px 10px 4px; overflow-x:auto; flex-shrink:0;
+  }
+  .filter-chip{
+    font-size:12px; padding:6px 11px; border-radius:16px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--text-dim); cursor:pointer; user-select:none;
+    white-space:nowrap; display:flex; align-items:center; gap:5px; flex-shrink:0;
+    font-weight:600;
+  }
+  .filter-chip.active{ background:rgba(143,174,107,0.2); border-color:var(--moss); color:var(--moss); }
+  .filter-chip.all.active{ background:rgba(201,169,97,0.2); border-color:var(--gold); color:var(--gold); }
+
+  .activity-panel{ margin-top:8px; padding-top:8px; border-top:1px dashed var(--line); display:none; }
+  .activity-panel.open{ display:block; }
+  .activity-panel textarea{
+    width:100%; margin-top:6px; background:var(--bg); border:1px solid var(--line); border-radius:8px;
+    color:var(--text); font-family:'Work Sans',sans-serif; font-size:12.5px; padding:8px; resize:vertical; min-height:44px;
+  }
+  .activity-panel .save-row{ display:flex; justify-content:flex-end; margin-top:6px; }
+  .activity-panel .save-row button{ padding:6px 12px; font-size:12px; }
+  .wikiloc-row{ display:none; margin-top:8px; }
+  .wikiloc-row label{
+    font-size:10.5px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-dim); font-weight:600;
+  }
+  .wikiloc-row input{
+    width:100%; margin-top:4px; background:var(--bg); border:1px solid var(--line); border-radius:8px;
+    color:var(--text); font-family:'JetBrains Mono', monospace; font-size:12px; padding:8px;
+  }
+  .saved-note a{ color:var(--water); }
+  .edit-toggle{
+    font-size:11px; color:var(--water); background:none; border:none; padding:4px 0 0; cursor:pointer;
+    font-weight:600;
+  }
+  .saved-note{
+    font-size:12px; color:var(--text-dim); margin-top:5px; font-style:italic; line-height:1.4;
+  }
+
+  .empty{ padding:24px 10px; text-align:center; color:var(--text-dim); font-size:13px; line-height:1.5; }
+
+  .disclaimer{
+    font-size:11px; color:var(--text-dim); line-height:1.5; padding:10px 16px 4px;
+    border-top:1px dashed var(--line); background:var(--bg);
+  }
+  .disclaimer b{ color:var(--gold); }
+
+  .marker-cross{
+    background: var(--rust);
+    width:14px; height:14px; border-radius:50%;
+    border:2px solid #fff3e6;
+    box-shadow:0 0 0 4px rgba(193,112,63,0.25);
+  }
+  .marker-center{
+    background: var(--gold);
+    width:14px; height:14px; border-radius:50%;
+    border:2px solid #241d09;
+  }
+  .poi-marker{
+    background:#fbf9f2; width:24px; height:24px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center; font-size:13px;
+    border:2px solid var(--water); box-shadow:0 2px 6px rgba(0,0,0,0.35);
+  }
+  .poi-marker.custom{ border-color:var(--rust); }
+  .poi-marker.watertap{ border-color:#5fa8c4; }
+
+  .leaflet-popup-content-wrapper{ background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:10px; }
+  .leaflet-popup-tip{ background:var(--panel); }
+  .leaflet-popup-content{ margin:10px 12px; font-family:'Work Sans', sans-serif; font-size:12.5px; line-height:1.5; }
+  .leaflet-popup-close-button{ color:var(--text-dim) !important; }
+
+  .apf-title{ font-weight:600; font-size:13px; margin-bottom:2px; }
+  .apf-cats{ display:flex; flex-wrap:wrap; gap:4px; margin:6px 0; }
+  .apf-chip{
+    font-size:11px; padding:4px 8px; border-radius:12px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--text-dim); cursor:pointer;
+  }
+  .apf-chip.active{ background:rgba(143,174,107,0.25); border-color:var(--moss); color:var(--moss); }
+  .apf-input{
+    width:100%; margin-top:4px; padding:6px 8px; border-radius:6px; border:1px solid var(--line);
+    background:var(--bg); color:var(--text); font-size:12px; box-sizing:border-box;
+  }
+  .apf-save{
+    margin-top:8px; width:100%; padding:7px; border-radius:6px; border:none;
+    background:var(--moss); color:#152010; font-weight:600; font-size:12px; cursor:pointer;
+  }
+  .apf-del{
+    margin-top:6px; width:100%; padding:6px; border-radius:6px; border:1px solid var(--danger);
+    background:transparent; color:var(--danger); font-weight:600; font-size:12px; cursor:pointer;
+  }
+
+  ::-webkit-scrollbar{ width:5px; }
+  ::-webkit-scrollbar-thumb{ background:var(--line); border-radius:3px; }
+
+  @media (max-width:430px){
+    .sheet{ max-height:32dvh; }
+    .brand h1{ font-size:21px; }
+    header{ padding:10px 14px 8px; }
+    .controls{ gap:8px 10px; margin-top:9px; }
+    .btnrow{ margin-top:9px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand-row">
+      <div class="brand">
+        <h1>Bivouac<span>4×4</span></h1>
+        <small>hors routes · hors habitations</small>
+      </div>
+      <button class="collapse-btn" id="collapseBtn">▾</button>
+    </div>
+    <div class="controls">
+      <div class="field">
+        <label for="radiusRange">Rayon de recherche</label>
+        <div class="valrow">
+          <input type="range" id="radiusRange" min="2" max="100" step="1" value="12">
+          <output id="radiusOut">12 km</output>
+        </div>
+        <div id="radiusWarn" style="display:none; font-size:10.5px; color:var(--rust); margin-top:2px;">Rayon large → recherche plus longue, voire instable</div>
+      </div>
+      <div class="field">
+        <label for="distRange">Distance min. requise</label>
+        <div class="valrow">
+          <input type="range" id="distRange" min="200" max="1500" step="50" value="500">
+          <output id="distOut">500 m</output>
+        </div>
+      </div>
+    </div>
+    <div class="toggle-row">
+      <div class="switch on" id="waterSwitch"><div class="knob"></div></div>
+      <label>🛶 Repérer les points d'eau à proximité (canoë / paddle / pêche)</label>
+    </div>
+    <div class="btnrow">
+      <button class="ghost" id="locateBtn">📍 Ma position</button>
+      <button class="primary" id="searchBtn">🔎 Chercher les zones</button>
+    </div>
+  </header>
+
+  <div id="map">
+    <div class="map-fabs">
+      <button class="map-fab" id="satToggle">🛰️ Satellite</button>
+      <button class="map-fab" id="fireToggle">🔥 Feux (EFFIS)</button>
+      <button class="map-fab" id="addPointToggle">➕ Ajouter un point</button>
+      <button class="map-fab" id="waterTapToggle">🚰 Eau potable</button>
+    </div>
+    <div class="status" id="status"><span class="spinner"></span><span id="statusText">Recherche…</span></div>
+  </div>
+
+  <div class="sheet">
+    <div class="sheet-handle">
+      <div class="count"><b id="resCount">0</b> zone(s) trouvée(s)</div>
+      <div class="sheet-actions">
+        <button class="ghost" id="gpxBtn" disabled>⬇ GPX</button>
+      </div>
+    </div>
+    <div class="filter-bar" id="filterBar"></div>
+    <div class="results" id="results">
+      <div class="empty">Clique sur la carte (ou géolocalise-toi) pour placer le centre, règle le rayon et la distance minimale, puis lance la recherche.</div>
+    </div>
+    <div class="disclaimer">
+      <b>Outil d'aide à la planification</b>, basé sur les données OpenStreetMap (précision variable selon les zones). Vérifie toujours sur place l'accessibilité réelle, la propriété du terrain (ONF, privé, réserve naturelle…), le droit de navigation/pêche sur le cours d'eau concerné, et la réglementation locale avant de bivouaquer. La couche <b>🔥 Feux</b> (EFFIS/Copernicus, service officiel de l'UE) montre des détections thermiques satellite (MODIS/VIIRS) avec ~2-3h de délai et des faux positifs possibles (feux agricoles, industriels) — elle est indicative et ne remplace <b>en aucun cas</b> les alertes officielles (SDIS, Préfecture, Météo-France, arrêtés de restriction d'accès aux massifs). Les repères <b>🥾🏊🎣🛶</b> affichés par activité viennent d'OpenStreetMap : couverture bénévole et inégale — leur absence ne signifie pas l'absence du spot sur le terrain. Nécessite internet pour la recherche — exporte en GPX avant de partir en zone blanche.
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  // ---------- Activities ----------
+  var ACTIVITIES = [
+    {key:'canoe', label:'Canoë / Paddle', icon:'🛶'},
+    {key:'peche', label:'Pêche', icon:'🎣'},
+    {key:'rando', label:'Randonnée', icon:'🥾'},
+    {key:'vtt', label:'VTT', icon:'🚵'},
+    {key:'baignade', label:'Baignade', icon:'🏊'}
+  ];
+  var memoryFallback = {};
+  async function storageGet(key){
+    try{
+      if(window.storage){
+        var r = await window.storage.get(key, false);
+        return r ? JSON.parse(r.value) : null;
+      }
+    }catch(e){ /* key absent or storage unavailable */ }
+    return memoryFallback[key] || null;
+  }
+  async function storageSet(key, value){
+    try{
+      if(window.storage){ await window.storage.set(key, JSON.stringify(value), false); return; }
+    }catch(e){ /* fall through to memory */ }
+    memoryFallback[key] = value;
+  }
+  function spotKey(lat, lon){
+    return 'bivouac_activity:' + lat.toFixed(4) + '_' + lon.toFixed(4);
+  }
+
+  // ---------- Activity filter bar (separate from per-spot chip editor) ----------
+  var filterState = new Set();
+  var poiLayers = {}; // populated after each search: {rando: L.layerGroup, baignade: ..., peche: ..., canoe: ...}
+  var filterBar = document.getElementById('filterBar');
+  var allChip = document.createElement('div');
+  allChip.className = 'filter-chip all active';
+  allChip.textContent = 'Toutes';
+  allChip.addEventListener('click', function(){
+    filterState.clear();
+    Object.keys(poiLayers).forEach(function(k){ map.removeLayer(poiLayers[k]); });
+    Object.keys(customPoiLayers).forEach(function(k){ map.removeLayer(customPoiLayers[k]); });
+    refreshFilterBarUI();
+    applyFilter();
+  });
+  filterBar.appendChild(allChip);
+  ACTIVITIES.forEach(function(act){
+    var chip = document.createElement('div');
+    chip.className = 'filter-chip';
+    chip.textContent = act.icon + ' ' + act.label;
+    chip.dataset.key = act.key;
+    chip.addEventListener('click', function(){
+      if(filterState.has(act.key)){
+        filterState.delete(act.key);
+        if(poiLayers[act.key]) map.removeLayer(poiLayers[act.key]);
+        if(customPoiLayers[act.key]) map.removeLayer(customPoiLayers[act.key]);
+      } else {
+        filterState.add(act.key);
+        if(poiLayers[act.key]) poiLayers[act.key].addTo(map);
+        if(customPoiLayers[act.key]) customPoiLayers[act.key].addTo(map);
+      }
+      refreshFilterBarUI();
+      applyFilter();
+    });
+    filterBar.appendChild(chip);
+  });
+  function refreshFilterBarUI(){
+    allChip.classList.toggle('active', filterState.size===0);
+    filterBar.querySelectorAll('.filter-chip:not(.all)').forEach(function(c){
+      c.classList.toggle('active', filterState.has(c.dataset.key));
+    });
+  }
+  function applyFilter(){
+    document.querySelectorAll('.result-item').forEach(function(item){
+      if(filterState.size===0){ item.style.display=''; return; }
+      var acts = [];
+      try{ acts = JSON.parse(item.dataset.activities||'[]'); }catch(e){}
+      var match = acts.some(function(a){ return filterState.has(a); });
+      item.style.display = match ? '' : 'none';
+    });
+  }
+
+  // ---------- Map setup ----------
+  var DEFAULT_CENTER = [44.8378, -0.5792]; // Bordeaux fallback
+  var map = L.map('map', { zoomControl:true, attributionControl:true }).setView(DEFAULT_CENTER, 11);
+  var voyagerLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+    maxZoom:17,
+    subdomains:'abc',
+    attribution:'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM &mdash; Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)'
+  }).addTo(map);
+
+  var satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom:19,
+    attribution:'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics'
+  });
+  var labelsLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', {
+    maxZoom:18, subdomains:'abcd', attribution:''
+  });
+  var satelliteOn = false;
+  document.getElementById('satToggle').addEventListener('click', function(){
+    satelliteOn = !satelliteOn;
+    if(satelliteOn){
+      map.removeLayer(voyagerLayer);
+      satLayer.addTo(map);
+      labelsLayer.addTo(map);
+      this.textContent = '🗺️ Carte';
+    } else {
+      map.removeLayer(satLayer);
+      map.removeLayer(labelsLayer);
+      voyagerLayer.addTo(map);
+      this.textContent = '🛰️ Satellite';
+    }
+  });
+
+  // EFFIS (Copernicus Emergency Management Service) active-fire hotspots — free, no key,
+  // official EU wildfire monitoring, better regional coverage/latency for France than global feeds.
+  // Indicative satellite thermal detections only (MODIS/VIIRS), ~2-3h latency; not an official alert feed.
+  function isoDate(d){ return d.toISOString().slice(0,10); }
+  var today = new Date();
+  var weekAgo = new Date(today.getTime() - 10*24*3600*1000);
+  var fireTimeRange = isoDate(weekAgo) + '/' + isoDate(today);
+  var fireLayer = L.tileLayer.wms('https://maps.effis.emergency.copernicus.eu/effis', {
+    layers: 'modis.hs',
+    format: 'image/png',
+    transparent: true,
+    version: '1.1.1',
+    time: fireTimeRange,
+    attribution: 'Fire data: EFFIS / Copernicus EMS (indicatif)'
+  });
+  var fireOn = false;
+  document.getElementById('fireToggle').addEventListener('click', function(){
+    fireOn = !fireOn;
+    this.classList.toggle('active', fireOn);
+    if(fireOn){ fireLayer.addTo(map); } else { map.removeLayer(fireLayer); }
+  });
+
+  var centerLatLng = null;
+  var centerMarker = null;
+  var radiusCircle = null;
+  var resultMarkers = [];
+  var trackLines = [];
+  var waterLines = [];
+  var lastResults = [];
+  var includeWater = true;
+
+  var headerEl = document.querySelector('header');
+  var collapseBtn = document.getElementById('collapseBtn');
+  collapseBtn.addEventListener('click', function(){
+    headerEl.classList.toggle('collapsed');
+    collapseBtn.textContent = headerEl.classList.contains('collapsed') ? '▸' : '▾';
+  });
+
+  var centerIcon = L.divIcon({className:'', html:'<div class="marker-center"></div>', iconSize:[14,14]});
+  var spotIcon = L.divIcon({className:'', html:'<div class="marker-cross"></div>', iconSize:[14,14]});
+
+  document.getElementById('waterSwitch').addEventListener('click', function(){
+    includeWater = !includeWater;
+    this.classList.toggle('on', includeWater);
+  });
+
+  function setCenter(lat, lon, zoomTo){
+    centerLatLng = {lat:lat, lon:lon};
+    if(centerMarker) map.removeLayer(centerMarker);
+    centerMarker = L.marker([lat,lon], {icon:centerIcon}).addTo(map);
+    updateRadiusCircle();
+    if(zoomTo) map.setView([lat,lon], 11);
+  }
+
+  function updateRadiusCircle(){
+    if(!centerLatLng) return;
+    var km = parseInt(document.getElementById('radiusRange').value,10);
+    if(radiusCircle) map.removeLayer(radiusCircle);
+    radiusCircle = L.circle([centerLatLng.lat, centerLatLng.lon], {
+      radius: km*1000, color:'#c9a961', weight:1, fillColor:'#8fae6b', fillOpacity:0.05, dashArray:'4,6'
+    }).addTo(map);
+  }
+
+  map.on('click', function(e){
+    if(addPointMode){
+      addPointMode = false;
+      addPointBtn.classList.remove('active');
+      addPointBtn.textContent = '➕ Ajouter un point';
+      openAddPointForm(e.latlng);
+      return;
+    }
+    setCenter(e.latlng.lat, e.latlng.lng, false);
+  });
+
+  document.getElementById('radiusRange').addEventListener('input', function(){
+    document.getElementById('radiusOut').textContent = this.value + ' km';
+    document.getElementById('radiusWarn').style.display = (parseInt(this.value,10) > 40) ? 'block' : 'none';
+    updateRadiusCircle();
+  });
+  document.getElementById('distRange').addEventListener('input', function(){
+    document.getElementById('distOut').textContent = this.value + ' m';
+  });
+
+  document.getElementById('locateBtn').addEventListener('click', function(){
+    if(!navigator.geolocation){ alert('Géolocalisation non disponible dans ce navigateur.'); return; }
+    setStatus(true, 'Localisation…');
+    navigator.geolocation.getCurrentPosition(function(pos){
+      setStatus(false);
+      setCenter(pos.coords.latitude, pos.coords.longitude, true);
+    }, function(){
+      setStatus(false);
+      alert("Impossible d'obtenir ta position (autorisation refusée ou indisponible). Clique directement sur la carte pour placer le centre.");
+    }, {enableHighAccuracy:true, timeout:10000});
+  });
+
+  function setStatus(on, text){
+    var el = document.getElementById('status');
+    if(on){ document.getElementById('statusText').textContent = text || 'Chargement…'; el.classList.add('show'); }
+    else { el.classList.remove('show'); }
+  }
+
+  // ---------- Geometry helpers ----------
+  function haversine(lat1, lon1, lat2, lon2){
+    var R = 6371000;
+    var dLat = (lat2-lat1)*Math.PI/180;
+    var dLon = (lon2-lon1)*Math.PI/180;
+    var a = Math.sin(dLat/2)*Math.sin(dLat/2) +
+            Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*
+            Math.sin(dLon/2)*Math.sin(dLon/2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  }
+
+  function makeProjector(refLat){
+    var R = 6371000;
+    var cosRef = Math.cos(refLat*Math.PI/180);
+    return function(lat, lon){
+      return [ (lon*Math.PI/180) * cosRef * R, (lat*Math.PI/180) * R ];
+    };
+  }
+
+  function distPointToSegmentXY(px,py, ax,ay, bx,by){
+    var dx=bx-ax, dy=by-ay;
+    var len2 = dx*dx+dy*dy;
+    var t = len2>0 ? ((px-ax)*dx+(py-ay)*dy)/len2 : 0;
+    t = Math.max(0, Math.min(1,t));
+    var cx = ax+t*dx, cy = ay+t*dy;
+    return Math.hypot(px-cx, py-cy);
+  }
+
+  function formatDist(m){
+    if(m===null || m===Infinity) return null;
+    return m < 1000 ? Math.round(m)+' m' : (m/1000).toFixed(1)+' km';
+  }
+  function escapeHtml(s){
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ---------- Overpass query ----------
+  var ROAD_HIGHWAYS = ['motorway','trunk','primary','secondary','tertiary','unclassified',
+    'residential','service','living_street','motorway_link','trunk_link','primary_link',
+    'secondary_link','tertiary_link'];
+
+  function buildQuery(lat, lon, radiusKm, withWater){
+    var dLat = radiusKm/111;
+    var dLon = radiusKm/(111*Math.cos(lat*Math.PI/180));
+    var south=(lat-dLat).toFixed(6), north=(lat+dLat).toFixed(6);
+    var west=(lon-dLon).toFixed(6), east=(lon+dLon).toFixed(6);
+    var bbox = south+','+west+','+north+','+east;
+    var roadRegex = '^(' + ROAD_HIGHWAYS.join('|') + ')$';
+    var timeoutS = Math.min(180, Math.round(30 + radiusKm*1.2));
+    var q = '[out:json][timeout:'+timeoutS+'];(' +
+      'way["highway"="track"](' + bbox + ');' +
+      'way["highway"~"' + roadRegex + '"](' + bbox + ');' +
+      'way["building"](' + bbox + ');' +
+      'node["building"](' + bbox + ');' +
+      'node["place"~"^(isolated_dwelling|farm|hamlet)$"](' + bbox + ');';
+    if(withWater){
+      q += 'way["waterway"~"^(river|canal|stream)$"](' + bbox + ');' +
+           'way["natural"="water"](' + bbox + ');' +
+           'way["water"](' + bbox + ');';
+    }
+    q += 'node["information"="guidepost"](' + bbox + ');' +
+         'node["natural"="beach"](' + bbox + ');' +
+         'way["natural"="beach"](' + bbox + ');' +
+         'node["leisure"="swimming_area"](' + bbox + ');' +
+         'way["leisure"="swimming_area"](' + bbox + ');' +
+         'node["leisure"="fishing"](' + bbox + ');' +
+         'way["leisure"="fishing"](' + bbox + ');' +
+         'node["leisure"="slipway"](' + bbox + ');';
+    q += ');out geom;';
+    return q;
+  }
+
+  async function fetchOverpass(query){
+    var endpoints = [
+      'https://overpass-api.de/api/interpreter',
+      'https://overpass.kumi.systems/api/interpreter',
+      'https://corsproxy.io/?url=' + encodeURIComponent('https://overpass-api.de/api/interpreter')
+    ];
+    var lastErr;
+    for(var i=0;i<endpoints.length;i++){
+      try{
+        var res = await fetch(endpoints[i], { method:'POST', body:'data='+encodeURIComponent(query) });
+        if(!res.ok) throw new Error('HTTP '+res.status);
+        return await res.json();
+      }catch(e){ lastErr = e; }
+    }
+    var friendly = new Error(
+      "Impossible de joindre OpenStreetMap. Si tu vois cette erreur dans l'aperçu intégré de Claude, télécharge le fichier et ouvre-le directement dans Safari/Chrome — l'aperçu intégré bloque parfois les requêtes réseau sortantes. Sinon, réessaie dans quelques instants (serveur Overpass surchargé)."
+    );
+    throw friendly;
+  }
+
+  // ---------- Drinking water refill points (separate on-demand layer, own button) ----------
+  var waterTapLayer = L.layerGroup();
+  var waterTapOn = false;
+  var waterTapBtn = document.getElementById('waterTapToggle');
+
+  async function loadWaterTaps(){
+    waterTapLayer.clearLayers();
+    var radiusKm = Math.min(parseInt(document.getElementById('radiusRange').value,10) || 12, 20);
+    var dLat = radiusKm/111;
+    var dLon = radiusKm/(111*Math.cos(centerLatLng.lat*Math.PI/180));
+    var south=(centerLatLng.lat-dLat).toFixed(6), north=(centerLatLng.lat+dLat).toFixed(6);
+    var west=(centerLatLng.lon-dLon).toFixed(6), east=(centerLatLng.lon+dLon).toFixed(6);
+    var bbox = south+','+west+','+north+','+east;
+    var q = '[out:json][timeout:25];(' +
+      'node["amenity"="drinking_water"](' + bbox + ');' +
+      'node["man_made"="water_tap"](' + bbox + ');' +
+      'node["amenity"="fountain"]["drinking_water"="yes"](' + bbox + ');' +
+      'node["natural"="spring"](' + bbox + ');' +
+      ');out geom;';
+    var data = await fetchOverpass(q);
+    data.elements.forEach(function(el){
+      if(el.type!=='node') return;
+      var tags = el.tags || {};
+      var isSpring = tags.natural === 'spring';
+      var potable = tags.drinking_water === 'yes' || (!isSpring && tags.drinking_water !== 'no');
+      var label, note;
+      if(isSpring){
+        label = '💧 Source naturelle';
+        note = (tags.drinking_water==='yes')
+          ? 'Signalée potable sur OSM — reste prudent, vérifie sur place.'
+          : 'Potabilité non garantie — à traiter/filtrer avant de boire.';
+      } else {
+        label = '🚰 ' + (tags.amenity==='fountain' ? 'Fontaine' : 'Robinet') + (tags.name ? ' — '+tags.name : '');
+        note = potable ? 'Signalée eau potable sur OSM.' : 'Statut non précisé — vérifie sur place.';
+      }
+      var icn = L.divIcon({className:'', html:'<div class="poi-marker watertap">'+(isSpring?'💧':'🚰')+'</div>', iconSize:[22,22]});
+      var m = L.marker([el.lat, el.lon], {icon:icn});
+      m.bindPopup('<div class="apf-title">'+escapeHtml(label)+'</div><div>'+escapeHtml(note)+'</div>');
+      waterTapLayer.addLayer(m);
+    });
+  }
+
+  waterTapBtn.addEventListener('click', async function(){
+    if(!centerLatLng){
+      alert('Clique d\'abord sur la carte pour placer un centre (ou utilise "Ma position").');
+      return;
+    }
+    waterTapOn = !waterTapOn;
+    waterTapBtn.classList.toggle('active', waterTapOn);
+    if(waterTapOn){
+      waterTapBtn.textContent = '⏳ Eau potable…';
+      try{
+        await loadWaterTaps();
+        waterTapLayer.addTo(map);
+        waterTapBtn.textContent = '🚰 Eau potable';
+      }catch(err){
+        alert('Impossible de charger les points d\'eau: ' + err.message);
+        waterTapOn = false;
+        waterTapBtn.classList.remove('active');
+        waterTapBtn.textContent = '🚰 Eau potable';
+      }
+    } else {
+      map.removeLayer(waterTapLayer);
+      waterTapBtn.textContent = '🚰 Eau potable';
+    }
+  });
+
+  // ---------- Search ----------
+  document.getElementById('searchBtn').addEventListener('click', runSearch);
+
+  async function runSearch(){
+    if(!centerLatLng){
+      alert('Clique d\'abord sur la carte pour placer le centre de la recherche (ou utilise "Ma position").');
+      return;
+    }
+    var radiusKm = parseInt(document.getElementById('radiusRange').value,10);
+    var minDist = parseInt(document.getElementById('distRange').value,10);
+
+    clearResults();
+    filterState.clear();
+    refreshFilterBarUI();
+    setStatus(true, 'Interrogation OpenStreetMap…');
+    document.getElementById('searchBtn').disabled = true;
+
+    try{
+      var query = buildQuery(centerLatLng.lat, centerLatLng.lon, radiusKm, includeWater);
+      var data = await fetchOverpass(query);
+
+      setStatus(true, 'Analyse des pistes, bâtiments et cours d\'eau…');
+      await new Promise(function(r){ setTimeout(r, 30); });
+
+      var tracks = [], roads = [], habitations = [], waterLinesGeo = [];
+      var guideposts = [], swimSpots = [], fishingSpots = [], slipways = [];
+      data.elements.forEach(function(el){
+        if(el.type==='way' && el.geometry){
+          var coords = el.geometry.map(function(g){ return [g.lat, g.lon]; });
+          if(el.tags && el.tags.highway==='track'){
+            tracks.push(coords);
+          } else if(el.tags && ROAD_HIGHWAYS.indexOf(el.tags.highway)>-1){
+            roads.push(coords);
+          } else if(el.tags && el.tags.building){
+            var sLat=0,sLon=0;
+            coords.forEach(function(c){ sLat+=c[0]; sLon+=c[1]; });
+            habitations.push([sLat/coords.length, sLon/coords.length]);
+          } else if(el.tags && (el.tags.natural==='beach' || el.tags.leisure==='swimming_area')){
+            var bLat=0,bLon=0;
+            coords.forEach(function(c){ bLat+=c[0]; bLon+=c[1]; });
+            swimSpots.push([bLat/coords.length, bLon/coords.length]);
+          } else if(el.tags && el.tags.leisure==='fishing'){
+            var fLat=0,fLon=0;
+            coords.forEach(function(c){ fLat+=c[0]; fLon+=c[1]; });
+            fishingSpots.push([fLat/coords.length, fLon/coords.length]);
+          } else if(el.tags && (el.tags.waterway || el.tags.natural==='water' || el.tags.water)){
+            waterLinesGeo.push(coords);
+          }
+        } else if(el.type==='node'){
+          if(el.tags && (el.tags.building || el.tags.place)){
+            habitations.push([el.lat, el.lon]);
+          } else if(el.tags && el.tags.information==='guidepost'){
+            guideposts.push([el.lat, el.lon]);
+          } else if(el.tags && (el.tags.natural==='beach' || el.tags.leisure==='swimming_area')){
+            swimSpots.push([el.lat, el.lon]);
+          } else if(el.tags && el.tags.leisure==='fishing'){
+            fishingSpots.push([el.lat, el.lon]);
+          } else if(el.tags && el.tags.leisure==='slipway'){
+            slipways.push([el.lat, el.lon]);
+          }
+        }
+      });
+
+      if(tracks.length===0){
+        setStatus(false);
+        document.getElementById('searchBtn').disabled=false;
+        document.getElementById('results').innerHTML = '<div class="empty">Aucune piste (highway=track) trouvée dans ce rayon sur OpenStreetMap. Essaie un rayon plus large ou un autre secteur.</div>';
+        return;
+      }
+
+      var proj = makeProjector(centerLatLng.lat);
+
+      var roadSegXY = [];
+      roads.forEach(function(line){
+        for(var i=0;i<line.length-1;i++){
+          var a = proj(line[i][0], line[i][1]);
+          var b = proj(line[i+1][0], line[i+1][1]);
+          roadSegXY.push([a[0],a[1],b[0],b[1]]);
+        }
+      });
+      var habXY = habitations.map(function(h){ var p=proj(h[0],h[1]); return [p[0],p[1]]; });
+      var waterSegXY = [];
+      waterLinesGeo.forEach(function(line){
+        for(var i=0;i<line.length-1;i++){
+          var a = proj(line[i][0], line[i][1]);
+          var b = proj(line[i+1][0], line[i+1][1]);
+          waterSegXY.push([a[0],a[1],b[0],b[1]]);
+        }
+      });
+
+      var SAMPLE_STEP = 200;
+      var candidates = [];
+      tracks.forEach(function(line){
+        for(var i=0;i<line.length-1;i++){
+          var segLen = haversine(line[i][0],line[i][1],line[i+1][0],line[i+1][1]);
+          var steps = Math.max(1, Math.floor(segLen/SAMPLE_STEP));
+          for(var s=0; s<steps; s++){
+            var t = s/steps;
+            var lat = line[i][0] + (line[i+1][0]-line[i][0])*t;
+            var lon = line[i][1] + (line[i+1][1]-line[i][1])*t;
+            var d = haversine(centerLatLng.lat, centerLatLng.lon, lat, lon);
+            if(d <= radiusKm*1000) candidates.push([lat, lon]);
+          }
+        }
+      });
+      if(candidates.length > 4000){
+        var stride = Math.ceil(candidates.length/4000);
+        candidates = candidates.filter(function(_,idx){ return idx%stride===0; });
+      }
+
+      setStatus(true, 'Calcul des distances (' + candidates.length + ' points)…');
+      await new Promise(function(r){ setTimeout(r, 30); });
+
+      var found = [];
+      var WATER_SEARCH_CAP = 6000; // meters, beyond this we don't bother reporting a distance
+
+      candidates.forEach(function(c){
+        var p = proj(c[0], c[1]);
+
+        var minRoad = Infinity;
+        for(var i=0;i<roadSegXY.length;i++){
+          var seg = roadSegXY[i];
+          var dx = Math.min(Math.abs(p[0]-seg[0]), Math.abs(p[0]-seg[2]));
+          if(dx > minDist*3) continue;
+          var d = distPointToSegmentXY(p[0],p[1], seg[0],seg[1], seg[2],seg[3]);
+          if(d<minRoad) minRoad = d;
+          if(minRoad < minDist) break;
+        }
+        if(minRoad < minDist) return;
+
+        var minHab = Infinity;
+        for(var j=0;j<habXY.length;j++){
+          var h = habXY[j];
+          var dxh = p[0]-h[0], dyh = p[1]-h[1];
+          if(Math.abs(dxh) > minDist*3 || Math.abs(dyh) > minDist*3) continue;
+          var dh = Math.hypot(dxh,dyh);
+          if(dh<minHab) minHab = dh;
+          if(minHab < minDist) break;
+        }
+        if(minHab < minDist) return;
+
+        var minWater = Infinity;
+        if(includeWater){
+          for(var k=0;k<waterSegXY.length;k++){
+            var wseg = waterSegXY[k];
+            var dxw = Math.min(Math.abs(p[0]-wseg[0]), Math.abs(p[0]-wseg[2]));
+            if(dxw > WATER_SEARCH_CAP) continue;
+            var dw = distPointToSegmentXY(p[0],p[1], wseg[0],wseg[1], wseg[2],wseg[3]);
+            if(dw<minWater) minWater = dw;
+          }
+        }
+
+        found.push({
+          lat:c[0], lon:c[1], roadDist:minRoad,
+          habDist:(minHab===Infinity? null : minHab),
+          waterDist:(minWater===Infinity || minWater>WATER_SEARCH_CAP ? null : minWater)
+        });
+      });
+
+      found.sort(function(a,b){ return haversine(centerLatLng.lat,centerLatLng.lon,a.lat,a.lon) - haversine(centerLatLng.lat,centerLatLng.lon,b.lat,b.lon); });
+      var kept = [];
+      found.forEach(function(f){
+        for(var i=0;i<kept.length;i++){
+          if(haversine(kept[i].lat,kept[i].lon,f.lat,f.lon) < 250) return;
+        }
+        kept.push(f);
+      });
+      kept = kept.slice(0, 60);
+
+      lastResults = kept;
+      renderTracks(tracks);
+      renderWater(waterLinesGeo);
+      renderActivityPois(guideposts, swimSpots, fishingSpots, slipways);
+      await renderResults(kept, minDist);
+      setStatus(false);
+      headerEl.classList.add('collapsed');
+      collapseBtn.textContent = '▸';
+    }catch(err){
+      console.error(err);
+      setStatus(false);
+      alert(err.message);
+    }
+    document.getElementById('searchBtn').disabled = false;
+  }
+
+  function clearResults(){
+    resultMarkers.forEach(function(m){ map.removeLayer(m); });
+    resultMarkers = [];
+    trackLines.forEach(function(l){ map.removeLayer(l); });
+    trackLines = [];
+    waterLines.forEach(function(l){ map.removeLayer(l); });
+    waterLines = [];
+  }
+
+  function renderTracks(tracks){
+    tracks.forEach(function(coords){
+      var line = L.polyline(coords, {color:'#c9a961', weight:1.5, opacity:0.35}).addTo(map);
+      trackLines.push(line);
+    });
+  }
+  function renderWater(lines){
+    lines.forEach(function(coords){
+      var line = L.polyline(coords, {color:'#6f9bb0', weight:2, opacity:0.5}).addTo(map);
+      waterLines.push(line);
+    });
+  }
+
+  function makePoiLayer(points, icon, popupText){
+    var lg = L.layerGroup();
+    points.forEach(function(p){
+      var icn = L.divIcon({className:'', html:'<div class="poi-marker">'+icon+'</div>', iconSize:[24,24]});
+      var m = L.marker([p[0],p[1]], {icon:icn});
+      m.bindPopup(popupText + '<br><span style="font-family:JetBrains Mono, monospace; font-size:11px;">'+p[0].toFixed(5)+', '+p[1].toFixed(5)+'</span>');
+      lg.addLayer(m);
+    });
+    return lg;
+  }
+
+  function renderActivityPois(guideposts, swimSpots, fishingSpots, slipways){
+    Object.keys(poiLayers).forEach(function(k){ map.removeLayer(poiLayers[k]); });
+    poiLayers = {
+      rando: makePoiLayer(guideposts, '🥾', 'Repère / départ de sentier (OSM)'),
+      baignade: makePoiLayer(swimSpots, '🏊', 'Point de baignade (déclaratif OSM)'),
+      peche: makePoiLayer(fishingSpots, '🎣', 'Coin pêche référencé (OSM)'),
+      canoe: makePoiLayer(slipways, '🛶', "Mise à l'eau / cale (OSM)")
+    };
+    filterState.forEach(function(k){ if(poiLayers[k]) poiLayers[k].addTo(map); });
+  }
+
+  // ---------- User-added custom points, per activity category ----------
+  var CUSTOM_POINTS_KEY = 'bivouac_custom_points';
+  var customPoints = [];
+  var customPoiLayers = {};
+  ACTIVITIES.forEach(function(act){ customPoiLayers[act.key] = L.layerGroup(); });
+
+  function saveCustomPoints(){ return storageSet(CUSTOM_POINTS_KEY, customPoints); }
+
+  function addCustomMarker(point){
+    var act = ACTIVITIES.filter(function(a){ return a.key===point.category; })[0];
+    var icon = act ? act.icon : '📍';
+    var icn = L.divIcon({className:'', html:'<div class="poi-marker custom">'+icon+'</div>', iconSize:[24,24]});
+    var marker = L.marker([point.lat, point.lon], {icon:icn});
+    marker.bindPopup(
+      '<div class="apf-title">'+icon+' '+escapeHtml(point.name || (act?act.label:'Point'))+'</div>' +
+      '<span style="font-family:JetBrains Mono, monospace; font-size:11px; color:var(--text-dim);">'+point.lat.toFixed(5)+', '+point.lon.toFixed(5)+'</span>' +
+      '<div>Point ajouté manuellement</div>' +
+      '<button class="apf-del" data-pid="'+point.id+'">🗑 Supprimer ce point</button>'
+    );
+    marker.on('popupopen', function(e){
+      var btn = e.popup.getElement().querySelector('.apf-del');
+      if(btn){
+        btn.addEventListener('click', function(){
+          customPoints = customPoints.filter(function(p){ return p.id !== point.id; });
+          saveCustomPoints();
+          customPoiLayers[point.category].removeLayer(marker);
+          map.closePopup();
+        });
+      }
+    });
+    customPoiLayers[point.category].addLayer(marker);
+  }
+
+  async function loadCustomPoints(){
+    var saved = await storageGet(CUSTOM_POINTS_KEY);
+    customPoints = saved || [];
+    customPoints.forEach(addCustomMarker);
+  }
+  loadCustomPoints();
+
+  // ---------- "Ajouter un point" mode: tap the map to place a point in a chosen category ----------
+  var addPointMode = false;
+  var addPointBtn = document.getElementById('addPointToggle');
+  addPointBtn.addEventListener('click', function(){
+    addPointMode = !addPointMode;
+    addPointBtn.classList.toggle('active', addPointMode);
+    addPointBtn.textContent = addPointMode ? '✋ Touche la carte…' : '➕ Ajouter un point';
+  });
+
+  function openAddPointForm(latlng){
+    var formId = 'apf' + Date.now();
+    var chipsHtml = ACTIVITIES.map(function(a){
+      return '<div class="apf-chip" data-key="'+a.key+'">'+a.icon+' '+a.label+'</div>';
+    }).join('');
+    var html =
+      '<div class="apf-title">Nouveau point</div>' +
+      '<div class="apf-cats" id="'+formId+'-cats">'+chipsHtml+'</div>' +
+      '<input class="apf-input" id="'+formId+'-name" type="text" placeholder="Nom (ex. Plage de galets, Trou à brochets…)">' +
+      '<button class="apf-save" id="'+formId+'-save">Enregistrer</button>';
+    var popup = L.popup({closeOnClick:false}).setLatLng(latlng).setContent(html).openOn(map);
+    var chosenCategory = null;
+    setTimeout(function(){
+      var el = popup.getElement();
+      if(!el) return;
+      var catsEl = el.querySelector('#'+formId+'-cats');
+      catsEl.querySelectorAll('.apf-chip').forEach(function(chip){
+        chip.addEventListener('click', function(){
+          catsEl.querySelectorAll('.apf-chip').forEach(function(c){ c.classList.remove('active'); });
+          chip.classList.add('active');
+          chosenCategory = chip.dataset.key;
+        });
+      });
+      el.querySelector('#'+formId+'-save').addEventListener('click', async function(){
+        if(!chosenCategory){ alert('Choisis une catégorie pour ce point.'); return; }
+        var nameVal = el.querySelector('#'+formId+'-name').value.trim();
+        var point = {
+          id: 'c'+Date.now()+Math.round(Math.random()*1000),
+          lat: latlng.lat, lon: latlng.lng,
+          category: chosenCategory, name: nameVal
+        };
+        customPoints.push(point);
+        await saveCustomPoints();
+        addCustomMarker(point);
+        if(!filterState.has(chosenCategory)){
+          filterState.add(chosenCategory);
+          refreshFilterBarUI();
+        }
+        customPoiLayers[chosenCategory].addTo(map);
+        map.closePopup();
+      });
+    }, 30);
+  }
+
+  async function renderResults(results, minDist){
+    document.getElementById('resCount').textContent = results.length;
+    document.getElementById('gpxBtn').disabled = results.length===0;
+    var box = document.getElementById('results');
+
+    if(results.length===0){
+      box.innerHTML = '<div class="empty">Aucune zone ne respecte les ' + minDist + ' m depuis une piste accessible dans ce rayon. Essaie d\'augmenter le rayon ou de réduire la distance minimale.</div>';
+      return;
+    }
+
+    box.innerHTML = '';
+    for(var idx=0; idx<results.length; idx++){
+      (function(r, idx){
+        var marker = L.marker([r.lat,r.lon], {icon:spotIcon}).addTo(map);
+        var habText = r.habDist===null ? 'aucune à proximité' : formatDist(r.habDist);
+        var waterText = r.waterDist===null ? null : formatDist(r.waterDist);
+        marker.bindPopup(
+          '<b>Zone '+(idx+1)+'</b><br>' +
+          r.lat.toFixed(5)+', '+r.lon.toFixed(5)+'<br>' +
+          'Route la plus proche : '+formatDist(r.roadDist)+'<br>' +
+          'Bâti le plus proche : '+habText +
+          (waterText ? '<br>Cours d\'eau le plus proche : '+waterText : '')
+        );
+        resultMarkers.push(marker);
+
+        var item = document.createElement('div');
+        item.className = 'result-item';
+
+        var badges = '<span class="badge">route ≥ '+formatDist(r.roadDist)+'</span>' +
+          '<span class="badge rust">bâti ≥ '+(r.habDist===null?'∞':formatDist(r.habDist))+'</span>';
+        if(waterText) badges += '<span class="badge water">🛶 eau ~'+waterText+'</span>';
+
+        item.innerHTML =
+          '<div class="ri-top">' +
+            '<div class="ri-left">' +
+              '<div class="ri-title">Zone '+(idx+1)+'</div>' +
+              '<div class="ri-coords">'+r.lat.toFixed(5)+', '+r.lon.toFixed(5)+'</div>' +
+              '<div class="ri-badges">'+badges+'</div>' +
+            '</div>' +
+            '<div class="ri-open">↗</div>' +
+          '</div>' +
+          '<div class="saved-note" style="display:none;"></div>' +
+          '<button class="edit-toggle">✎ Activités & notes</button>' +
+          '<div class="activity-panel">' +
+            '<div class="activity-chips"></div>' +
+            '<textarea placeholder="Ex. Boucle canoë 12 km, mise à l\'eau au pont en aval…"></textarea>' +
+            '<div class="wikiloc-row">' +
+              '<label>Lien Wikiloc (rando associée)</label>' +
+              '<input type="url" class="wikiloc-input" placeholder="https://www.wikiloc.com/...">' +
+            '</div>' +
+            '<div class="save-row"><button class="ghost save-btn">Enregistrer</button></div>' +
+          '</div>';
+
+        var top = item.querySelector('.ri-top');
+        top.addEventListener('click', function(){
+          map.setView([r.lat, r.lon], 15);
+          marker.openPopup();
+        });
+
+        var chipsBox = item.querySelector('.activity-chips');
+        var wikilocRow = item.querySelector('.wikiloc-row');
+        var wikilocInput = item.querySelector('.wikiloc-input');
+        var activeKeys = {};
+        ACTIVITIES.forEach(function(act){
+          var chip = document.createElement('div');
+          chip.className = 'achip';
+          chip.textContent = act.icon + ' ' + act.label;
+          chip.addEventListener('click', function(){
+            activeKeys[act.key] = !activeKeys[act.key];
+            chip.classList.toggle('active', activeKeys[act.key]);
+            if(act.key === 'rando'){ wikilocRow.style.display = activeKeys.rando ? 'block' : 'none'; }
+          });
+          chipsBox.appendChild(chip);
+        });
+
+        var panel = item.querySelector('.activity-panel');
+        var toggleBtn = item.querySelector('.edit-toggle');
+        var textarea = item.querySelector('textarea');
+        var noteDiv = item.querySelector('.saved-note');
+
+        toggleBtn.addEventListener('click', function(){
+          panel.classList.toggle('open');
+        });
+
+        item.querySelector('.save-btn').addEventListener('click', async function(){
+          var data = {
+            activities: Object.keys(activeKeys).filter(function(k){return activeKeys[k];}),
+            note: textarea.value.trim(),
+            wikilocUrl: wikilocInput.value.trim()
+          };
+          await storageSet(spotKey(r.lat,r.lon), data);
+          refreshNoteDisplay(data);
+          item.dataset.activities = JSON.stringify(data.activities);
+          applyFilter();
+          panel.classList.remove('open');
+        });
+
+        function refreshNoteDisplay(data){
+          var iconStr = (data.activities||[]).map(function(k){
+            var a = ACTIVITIES.filter(function(x){return x.key===k;})[0];
+            return a ? a.icon : '';
+          }).join(' ');
+          var hasContent = (data.activities && data.activities.length) || data.note || data.wikilocUrl;
+          if(hasContent){
+            noteDiv.style.display = 'block';
+            var html = (iconStr ? iconStr+' ' : '') + escapeHtml(data.note || '');
+            if(data.wikilocUrl){
+              html += (html ? '<br>' : '') + '🥾 <a href="'+escapeHtml(data.wikilocUrl)+'" target="_blank" rel="noopener">Voir la trace sur Wikiloc ↗</a>';
+            }
+            noteDiv.innerHTML = html;
+          } else {
+            noteDiv.style.display = 'none';
+          }
+        }
+
+        storageGet(spotKey(r.lat,r.lon)).then(function(saved){
+          if(saved){
+            (saved.activities||[]).forEach(function(k){
+              activeKeys[k]=true;
+              var chips = chipsBox.querySelectorAll('.achip');
+              chips.forEach(function(c,i){ if(ACTIVITIES[i].key===k) c.classList.add('active'); });
+            });
+            if(activeKeys.rando) wikilocRow.style.display = 'block';
+            textarea.value = saved.note || '';
+            wikilocInput.value = saved.wikilocUrl || '';
+            refreshNoteDisplay(saved);
+          }
+          item.dataset.activities = JSON.stringify((saved && saved.activities) || []);
+          applyFilter();
+        });
+
+        box.appendChild(item);
+      })(results[idx], idx);
+    }
+  }
+
+  document.getElementById('gpxBtn').addEventListener('click', async function(){
+    if(lastResults.length===0) return;
+    var gpx = '<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Bivouac4x4">\n';
+    for(var idx=0; idx<lastResults.length; idx++){
+      var r = lastResults[idx];
+      var saved = await storageGet(spotKey(r.lat,r.lon));
+      var descParts = [];
+      if(saved){
+        if(saved.activities && saved.activities.length){
+          descParts.push(saved.activities.map(function(k){
+            var a = ACTIVITIES.filter(function(x){return x.key===k;})[0];
+            return a ? a.label : k;
+          }).join(', '));
+        }
+        if(saved.note) descParts.push(saved.note);
+      }
+      var desc = descParts.join(' — ').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      var linkTag = (saved && saved.wikilocUrl) ? '<link href="'+escapeHtml(saved.wikilocUrl)+'"><text>Wikiloc</text></link>' : '';
+      gpx += '  <wpt lat="'+r.lat+'" lon="'+r.lon+'"><name>Bivouac '+(idx+1)+'</name>' +
+             (desc ? '<desc>'+desc+'</desc>' : '') + linkTag + '</wpt>\n';
+    }
+    gpx += '</gpx>';
+    var blob = new Blob([gpx], {type:'application/gpx+xml'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'bivouac-4x4-zones.gpx';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  });
+
+  if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(function(pos){
+      setCenter(pos.coords.latitude, pos.coords.longitude, true);
+    }, function(){ /* ignore, user can click the map */ }, {timeout:4000});
+  }
+})();
+</script>
+</body>
+</html>
